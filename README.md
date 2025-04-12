@@ -38,7 +38,12 @@ Games are represented by separate dictionary entries, keyed by name.
 
 ## Discord commands
 
-The bot currently supports `$run (game) (runner)` `$kill (game) (runner)` and `$status`. 
+The bot currently supports 
+- `$run (game) (runner)`
+- `$kill (game) (runner)`
+- `$killall`
+- `$killall (game)`
+- `$status`. 
 
 ### $run (game) (runner)
 
@@ -52,6 +57,10 @@ e.g: in the example file above, "spellbreak" would be a game and "solo" would be
 These correspond directly with the contents (specifically the keys) of secret.json and will be checked against running processes.
 e.g: in the example file above, "spellbreak" would be a game and "solo" would be a runner, ergo `$kill spellbreak solo` would kill a running solo spellbreak server.
 It is reccommended to use `$status` to check what is running before using `$kill`.
+
+### $killall / $killall (game)
+
+Killall when passed no parameters will attempt to kill all running processes. It optionally takes one parameter: game. This will direct it to kill only subprocesses of that specified game, and no others.
 
 ### $status 
 `$status` simply sends a message containing the currently running servers, and cleans its "processes" dictionary if anything has died.
