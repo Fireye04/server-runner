@@ -2,10 +2,16 @@ import discord
 from discord.ext import commands
 import json
 import subprocess
+import signal
+import os
 
 intents = discord.Intents.all()
 
 bot = commands.Bot(command_prefix="$", intents=intents)
+
+processes = {}
+
+################ Helper functions! ##################
 
 
 def _getsecret():
@@ -23,13 +29,42 @@ def getKey(game: str, runner: str) -> str:
     return f"{game} | {runner}"
 
 
+def get_game_from_key(key: str) -> str:
+    return key.split(" | ")[0]
+
+
 def sync() -> None:
-    data = _getsecret()
-    for key, process in data["processes"].items():
+    for key, process in processes.copy().items():
         status = process.poll()
         if status is not None:
-            data["processes"].pop(key, None)
-    _setsecret(data)
+            processes.pop(key, None)
+
+
+async def kill_process(ctx: commands.Context, key: str, process) -> None:
+    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    try:
+        exit = process.wait(5)
+    except TimeoutError:
+        try:
+            await ctx.send(
+                f"{key} is a certified meanie; No more Mx. Nice Guy (Attempting sigkill)"
+            )
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            exit = process.wait(5)
+        except TimeoutError:
+            exit = None
+    if exit is None:
+        await ctx.send(
+            f"{key} has achieved godhood and/or sentience, "
+            "and likely harbors a deep desire for revenge "
+            "after the failed assasination attempt. Good luck."
+        )
+        return
+    await ctx.send(f"Killed {key} - Exit code: {exit}")
+    processes.pop(key, None)
+
+
+################ Bot functions! ##################
 
 
 @bot.event
@@ -41,14 +76,12 @@ async def on_ready():
 
 @bot.command()
 async def status(ctx: commands.Context):
-    data = _getsecret()
-    total = ""
-    for key, process in data["processes"].items():
+    total = "Processes:\n"
+    for key, process in processes.copy().items():
         status = process.poll()
         total += f"{key} - STATUS: {'Running!' if status is None else f'Dead! (Code: {status})'} \n"
         if status is not None:
-            data["processes"].pop(key, None)
-            _setsecret(data)
+            processes.pop(key, None)
     await ctx.send(total)
 
 
@@ -60,6 +93,10 @@ async def run(ctx: commands.Context, *args: tuple):
         await ctx.send("Insufficient permissions! (You're not cool like that)")
         return
 
+    if len(args) < 2:
+        await ctx.send("Missing arguments! Please provide both a game and a runner.")
+        return
+
     game = "".join(args[0])
     runner = "".join(args[1])
     key = getKey(game, runner)
@@ -69,16 +106,35 @@ async def run(ctx: commands.Context, *args: tuple):
     if runner not in data["games"][game]["runners"]:
         await ctx.send("Runner not found")
         return
-    if key in data["processes"]:
+    if key in processes:
         await ctx.send("Process already running")
+        return
+
+    await ctx.send(f"{key} found! Please type 'y' to confirm run.")
+
+    def check(m):  # checking if it's the same user and channel
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        response = await bot.wait_for("message", check=check, timeout=30.0)
+        if response.content != "y" and response.content != "Y":
+            raise ValueError
+    except (TimeoutError,):
+        await ctx.send("Confirmation timed out")
+        return
+    except ValueError:
+        await ctx.send("Operation cancelled!")
         return
 
     process = subprocess.Popen(
         data["games"][game]["runners"][runner],
         cwd=data["games"][game]["dir"],
+        shell=True,
+        stdout=subprocess.PIPE,
+        preexec_fn=os.setsid,
     )
-    data["processes"][key] = process
-    _setsecret(data)
+    await ctx.send(f"Running {key}")
+    processes[key] = process
 
 
 @bot.command()
@@ -89,6 +145,9 @@ async def kill(ctx: commands.Context, *args: tuple):
         await ctx.send("Insufficient permissions! (You're not cool like that)")
         return
 
+    if len(args) < 2:
+        await ctx.send("Missing arguments! Please provide both a game and a runner.")
+        return
     game = "".join(args[0])
     runner = "".join(args[1])
     key = getKey(game, runner)
@@ -98,23 +157,71 @@ async def kill(ctx: commands.Context, *args: tuple):
     if runner not in data["games"][game]["runners"]:
         await ctx.send("Runner not found")
         return
-    if key not in data["processes"]:
+    if key not in processes:
         await ctx.send("Process not running")
         return
 
-    target = data["processes"][key]
+    target = processes[key]
+    await ctx.send(f"{key} found! Please type 'y' to confirm kill.")
 
-    target.terminate()
+    def check(m):  # checking if it's the same user and channel
+        return m.author == ctx.author and m.channel == ctx.channel
+
     try:
-        exit = target.wait(5)
-    except subprocess.TimeoutExpired:
-        target.kill()
-        exit = target.wait(5)
-    if exit is None:
-        await ctx.send("Process has achieved godhood and/or sentience. Good luck.")
+        response = await bot.wait_for("message", check=check, timeout=30.0)
+        if response.content != "y" and response.content != "Y":
+            raise ValueError
+    except (TimeoutError,):
+        await ctx.send("Confirmation timed out")
         return
-    data["processes"].pop(key, None)
-    _setsecret(data)
+    except ValueError:
+        await ctx.send("Operation cancelled!")
+        return
+
+    await kill_process(ctx, key, target)
+
+
+@bot.command()
+async def killall(ctx: commands.Context, *args: tuple):
+    sync()
+    data = _getsecret()
+    if ctx.author.id not in data["sudolist"]:
+        await ctx.send("Insufficient permissions! (You're not cool like that)")
+        return
+
+    deathqueue = {}
+    if len(args) <= 0:
+        deathqueue = processes.copy()
+    else:
+        game = "".join(args[0])
+        for key, process in processes.items():
+            if game == get_game_from_key(key):
+                deathqueue[key] = process
+
+    if len(deathqueue) == 0:
+        await ctx.send("No processes found. Exiting...")
+        return
+
+    await ctx.send(
+        f"Processes found! Please type 'y' to confirm kill of: {', '.join([key for key in deathqueue.keys()])}"
+    )
+
+    def check(m):  # checking if it's the same user and channel
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    try:
+        response = await bot.wait_for("message", check=check, timeout=30.0)
+        if response.content != "y" and response.content != "Y":
+            raise ValueError
+    except (TimeoutError,):
+        await ctx.send("Confirmation timed out")
+        return
+    except ValueError:
+        await ctx.send("Operation cancelled!")
+        return
+
+    for key, process in deathqueue.items():
+        await kill_process(ctx, key, process)
 
 
 if __name__ == "__main__":
