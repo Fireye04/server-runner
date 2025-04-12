@@ -11,6 +11,8 @@ bot = commands.Bot(command_prefix="$", intents=intents)
 
 processes = {}
 
+################ Helper functions! ##################
+
 
 def _getsecret():
     with open("secret.json", "r") as sec:
@@ -28,7 +30,7 @@ def getKey(game: str, runner: str) -> str:
 
 
 def get_game_from_key(key: str) -> str:
-    return key.split("|")[0]
+    return key.split(" | ")[0]
 
 
 def sync() -> None:
@@ -36,6 +38,33 @@ def sync() -> None:
         status = process.poll()
         if status is not None:
             processes.pop(key, None)
+
+
+async def kill_process(ctx: commands.Context, key: str, process) -> None:
+    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    try:
+        exit = process.wait(5)
+    except TimeoutError:
+        try:
+            await ctx.send(
+                f"{key} is a certified meanie; No more Mx. Nice Guy (Attempting sigkill)"
+            )
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+            exit = process.wait(5)
+        except TimeoutError:
+            exit = None
+    if exit is None:
+        await ctx.send(
+            f"{key} has achieved godhood and/or sentience, "
+            "and likely harbors a deep desire for revenge "
+            "after the failed assasination attempt. Good luck."
+        )
+        return
+    await ctx.send(f"Killed {key} - Exit code: {exit}")
+    processes.pop(key, None)
+
+
+################ Bot functions! ##################
 
 
 @bot.event
@@ -81,14 +110,14 @@ async def run(ctx: commands.Context, *args: tuple):
         await ctx.send("Process already running")
         return
 
-    await ctx.send(f"Process found! Please type 'y' to confirm run of \"{key}\"")
+    await ctx.send(f"{key} found! Please type 'y' to confirm run.")
 
     def check(m):  # checking if it's the same user and channel
         return m.author == ctx.author and m.channel == ctx.channel
 
     try:
         response = await bot.wait_for("message", check=check, timeout=30.0)
-        if response != "y" or response != "Y":
+        if response.content != "y" and response.content != "Y":
             raise ValueError
     except (TimeoutError,):
         await ctx.send("Confirmation timed out")
@@ -133,14 +162,14 @@ async def kill(ctx: commands.Context, *args: tuple):
         return
 
     target = processes[key]
-    await ctx.send(f"Process found! Please type 'y' to confirm kill of \"{key}\"")
+    await ctx.send(f"{key} found! Please type 'y' to confirm kill.")
 
     def check(m):  # checking if it's the same user and channel
         return m.author == ctx.author and m.channel == ctx.channel
 
     try:
         response = await bot.wait_for("message", check=check, timeout=30.0)
-        if response != "y" or response != "Y":
+        if response.content != "y" and response.content != "Y":
             raise ValueError
     except (TimeoutError,):
         await ctx.send("Confirmation timed out")
@@ -149,28 +178,7 @@ async def kill(ctx: commands.Context, *args: tuple):
         await ctx.send("Operation cancelled!")
         return
 
-    await ctx.send(f"Killing {key}...")
-    os.killpg(os.getpgid(target.pid), signal.SIGTERM)
-    try:
-        exit = target.wait(5)
-    except TimeoutError:
-        try:
-            await ctx.send(
-                "Process is a certified meanie; No more Mx. Nice Guy (Attempting sigkill)"
-            )
-            os.killpg(os.getpgid(target.pid), signal.SIGKILL)
-            exit = target.wait(5)
-        except TimeoutError:
-            exit = None
-    if exit is None:
-        await ctx.send(
-            "Process has achieved godhood and/or sentience, "
-            "and likely harbors a deep desire for revenge "
-            "after the failed assasination attempt. Good luck."
-        )
-        return
-    await ctx.send(f"Killed {key}! Exit code: {exit}")
-    processes.pop(key, None)
+    await kill_process(ctx, key, target)
 
 
 @bot.command()
@@ -185,8 +193,9 @@ async def killall(ctx: commands.Context, *args: tuple):
     if len(args) <= 0:
         deathqueue = processes.copy()
     else:
+        game = "".join(args[0])
         for key, process in processes.items():
-            if args[0] == get_game_from_key(key):
+            if game == get_game_from_key(key):
                 deathqueue[key] = process
 
     if len(deathqueue) == 0:
@@ -194,7 +203,7 @@ async def killall(ctx: commands.Context, *args: tuple):
         return
 
     await ctx.send(
-        f"Processes found! Please type 'y' to confirm kill of \"{deathqueue.keys()}\""
+        f"Processes found! Please type 'y' to confirm kill of: {', '.join([key for key in deathqueue.keys()])}"
     )
 
     def check(m):  # checking if it's the same user and channel
@@ -202,7 +211,7 @@ async def killall(ctx: commands.Context, *args: tuple):
 
     try:
         response = await bot.wait_for("message", check=check, timeout=30.0)
-        if response != "y" or response != "Y":
+        if response.content != "y" and response.content != "Y":
             raise ValueError
     except (TimeoutError,):
         await ctx.send("Confirmation timed out")
@@ -212,28 +221,7 @@ async def killall(ctx: commands.Context, *args: tuple):
         return
 
     for key, process in deathqueue.items():
-        await ctx.send(f"Killing {key}...")
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-        try:
-            exit = process.wait(5)
-        except TimeoutError:
-            try:
-                await ctx.send(
-                    "Process is a certified meanie; No more Mx. Nice Guy (Attempting sigkill)"
-                )
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                exit = process.wait(5)
-            except TimeoutError:
-                exit = None
-        if exit is None:
-            await ctx.send(
-                "Process has achieved godhood and/or sentience, "
-                "and likely harbors a deep desire for revenge "
-                "after the failed assasination attempt. Good luck."
-            )
-            return
-        await ctx.send(f"Killed {key}! Exit code: {exit}")
-        processes.pop(key, None)
+        await kill_process(ctx, key, process)
 
 
 if __name__ == "__main__":
