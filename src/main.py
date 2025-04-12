@@ -7,6 +7,8 @@ intents = discord.Intents.all()
 
 bot = commands.Bot(command_prefix="$", intents=intents)
 
+processes = {}
+
 
 def _getsecret():
     with open("secret.json", "r") as sec:
@@ -24,12 +26,10 @@ def getKey(game: str, runner: str) -> str:
 
 
 def sync() -> None:
-    data = _getsecret()
-    for key, process in data["processes"].items():
+    for key, process in processes.items():
         status = process.poll()
         if status is not None:
-            data["processes"].pop(key, None)
-    _setsecret(data)
+            processes.pop(key, None)
 
 
 @bot.event
@@ -41,14 +41,12 @@ async def on_ready():
 
 @bot.command()
 async def status(ctx: commands.Context):
-    data = _getsecret()
     total = ""
-    for key, process in data["processes"].items():
+    for key, process in processes.items():
         status = process.poll()
         total += f"{key} - STATUS: {'Running!' if status is None else f'Dead! (Code: {status})'} \n"
         if status is not None:
-            data["processes"].pop(key, None)
-            _setsecret(data)
+            processes.pop(key, None)
     await ctx.send(total)
 
 
@@ -69,7 +67,7 @@ async def run(ctx: commands.Context, *args: tuple):
     if runner not in data["games"][game]["runners"]:
         await ctx.send("Runner not found")
         return
-    if key in data["processes"]:
+    if key in processes:
         await ctx.send("Process already running")
         return
 
@@ -77,8 +75,7 @@ async def run(ctx: commands.Context, *args: tuple):
         data["games"][game]["runners"][runner],
         cwd=data["games"][game]["dir"],
     )
-    data["processes"][key] = process
-    _setsecret(data)
+    processes[key] = process
 
 
 @bot.command()
@@ -98,11 +95,11 @@ async def kill(ctx: commands.Context, *args: tuple):
     if runner not in data["games"][game]["runners"]:
         await ctx.send("Runner not found")
         return
-    if key not in data["processes"]:
+    if key not in processes:
         await ctx.send("Process not running")
         return
 
-    target = data["processes"][key]
+    target = processes[key]
 
     target.terminate()
     try:
@@ -113,8 +110,7 @@ async def kill(ctx: commands.Context, *args: tuple):
     if exit is None:
         await ctx.send("Process has achieved godhood and/or sentience. Good luck.")
         return
-    data["processes"].pop(key, None)
-    _setsecret(data)
+    processes.pop(key, None)
 
 
 if __name__ == "__main__":
