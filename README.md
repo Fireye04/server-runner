@@ -19,20 +19,21 @@ Games are represented by separate dictionary entries, keyed by name.
 	- runners should contain a dictionary of different game executables should there be different servers available, each keyed by server type, and containing an array of command arguments (Pretend you're writing a command but each argument is a separate list item)
 ```json
 {
-	"token":"PUT YOUR BOT TOKEN HERE",
-	"sudolist":[111111, 222222],
-	"games":{
-		"spellbreak":{
-			"dir":"/absolute/path/to/game/folder/spellbreak/",
-			"runners":{
-				"solo":["wine","./Start a Solo server.bat"],
-				"duo":["wine","./Start a Duo server.bat"],
-				"squad":["wine","./Start a Squad server.bat"],
-				"dominion":["wine","./Start a Dominion server.bat"]
-			}
-		}
-	},
-	"processes":{}
+  "token": "PUT YOUR BOT TOKEN HERE",
+  "sudolist": [
+    1111, 2222
+  ],
+  "games": {
+    "spellbreak": {
+      "dir": "/absolute/path/to/server/folder/spellbreak/",
+      "runners": {
+        "solo": "wine ./'Start a Solo server.bat'",
+        "duo": "wine ./'Start a Duo server.bat'",
+        "squad": "wine ./'Start a Squad server.bat'",
+        "dominion": "wine ./'Start a Dominion server.bat'"
+      }
+    }
+  }
 }
 ```
 
