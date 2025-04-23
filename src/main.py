@@ -1,15 +1,18 @@
+from re import sub
 import discord
 from discord.ext import commands
 import json
 import subprocess
 import signal
 import os
+import docker
 
+docker_client = docker.from_env()
 intents = discord.Intents.all()
 
 bot = commands.Bot(command_prefix="$", intents=intents)
 
-processes = {}
+processes: dict[str, dict[subprocess.Popen, bool]] = {}
 
 ################ Helper functions! ##################
 
@@ -78,10 +81,13 @@ async def on_ready():
 async def status(ctx: commands.Context):
     total = "Processes:\n"
     for key, process in processes.copy().items():
-        status = process.poll()
-        total += f"{key} - STATUS: {'Running!' if status is None else f'Dead! (Code: {status})'} \n"
-        if status is not None:
-            processes.pop(key, None)
+        if (process["docker"]):
+        else:
+
+            status = process.poll()
+            total += f"{key} - STATUS: {'Running!' if status is None else f'Dead! (Code: {status})'} \n"
+            if status is not None:
+                processes.pop(key, None)
     await ctx.send(total)
 
 
@@ -126,15 +132,28 @@ async def run(ctx: commands.Context, *args: tuple):
         await ctx.send("Operation cancelled!")
         return
 
-    process = subprocess.Popen(
-        data["games"][game]["runners"][runner],
-        cwd=data["games"][game]["dir"],
-        shell=True,
-        stdout=subprocess.PIPE,
-        preexec_fn=os.setsid,
-    )
+    uses_docker = data["games"][game]["docker"]
+    runner = data["games"][game]["runners"][runner]
+    if uses_docker:
+        process = docker_client.containers.run(
+            image=runner["image"],
+            name=key,
+            detach=runner["detatched"],
+            environment=runner["env"],
+            ports=runner["ports"],
+            working_dir=data["games"][game]["dir"],
+        )
+    else:
+        process = subprocess.Popen(
+            args=runner,
+            cwd=data["games"][game]["dir"],
+            shell=True,
+            stdout=subprocess.PIPE,
+            preexec_fn=os.setsid,
+        )
+
     await ctx.send(f"Running {key}")
-    processes[key] = process
+    processes[key] = {"process": process, "docker": uses_docker}
 
 
 @bot.command()
